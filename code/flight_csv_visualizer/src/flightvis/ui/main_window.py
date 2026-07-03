@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QFileDialog,
     QMainWindow,
@@ -17,9 +18,11 @@ from PySide6.QtWidgets import (
 
 from flightvis.core.data_manager import DataManager
 from flightvis.core.project_manager import ProjectManager
+from flightvis.constants import APP_NAME
 from flightvis.io.column_detector import missing_required_mapping
 from flightvis.io.csv_loader import read_csv
 from flightvis.models.project_config import create_default_project
+from flightvis.resources import app_icon_path
 from flightvis.models.tab_config import create_custom_tab
 from flightvis.ui.column_mapping_dialog import ColumnMappingDialog
 from flightvis.ui.file_manager_dialog import FileManagerDialog
@@ -33,7 +36,8 @@ from flightvis.ui.trajectory_view import TrajectoryView
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("FlightCSVVisualizer")
+        self.setWindowTitle(f"天玑 {APP_NAME}")
+        self.setWindowIcon(QIcon(str(app_icon_path())))
         self.project_manager = ProjectManager(create_default_project())
         self.data_manager = DataManager(self.project_manager.project)
         self.current_plot_cell = None
@@ -131,8 +135,14 @@ class MainWindow(QMainWindow):
         self.legend.refresh()
         self.statusBar().showMessage(f"已加载 {len(self.data_manager.list_files())} 个 CSV 文件", 3000)
 
+    def csv_dialog_directory(self) -> str:
+        last_dir = self.project.settings.get("last_csv_dir")
+        if last_dir and Path(last_dir).exists():
+            return str(Path(last_dir))
+        return str(Path.cwd())
+
     def open_csv_files(self) -> None:
-        paths, _ = QFileDialog.getOpenFileNames(self, "打开 CSV 文件", str(Path.cwd()), "CSV 文件 (*.csv)")
+        paths, _ = QFileDialog.getOpenFileNames(self, "打开 CSV 文件", self.csv_dialog_directory(), "CSV 文件 (*.csv)")
         if not paths:
             return
         default_aliases = [self.project.allocate_alias() for _ in paths]
@@ -140,6 +150,7 @@ class MainWindow(QMainWindow):
         if not dialog.exec():
             self.project.next_file_alias_index -= len(paths)
             return
+        self.project.settings["last_csv_dir"] = str(Path(paths[0]).parent)
         for path, alias in zip(paths, dialog.aliases()):
             try:
                 data_file = self.data_manager.add_csv(path, alias=alias)

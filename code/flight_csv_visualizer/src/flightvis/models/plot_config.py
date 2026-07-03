@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from flightvis.models.curve_config import CurveConfig
+from flightvis.models.curve_override import CurveOverride
 from flightvis.models.serialization import optional_float_range
 from flightvis.models.visibility import VisibilityState
 
@@ -56,6 +57,8 @@ class PresetPlotConfig:
     title: str = ""
     display: DisplayConfig = field(default_factory=DisplayConfig)
     curve_visibility: dict[str, VisibilityState] = field(default_factory=dict)
+    curve_overrides: dict[str, CurveOverride] = field(default_factory=dict)
+    curve_order: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -67,6 +70,8 @@ class PresetPlotConfig:
             "title": self.title,
             "display": self.display.to_dict(),
             "curve_visibility": {key: value.to_dict() for key, value in self.curve_visibility.items()},
+            "curve_overrides": {key: value.to_dict() for key, value in self.curve_overrides.items()},
+            "curve_order": list(self.curve_order),
         }
 
     @classmethod
@@ -83,6 +88,11 @@ class PresetPlotConfig:
                 str(key): VisibilityState.from_dict(value)
                 for key, value in data.get("curve_visibility", {}).items()
             },
+            curve_overrides={
+                str(key): CurveOverride.from_dict(value)
+                for key, value in data.get("curve_overrides", {}).items()
+            },
+            curve_order=[str(item) for item in data.get("curve_order", [])],
         )
 
 
@@ -93,6 +103,7 @@ class HorizontalCompareConfig:
     x_mode: str = "mapped_time"
     x_column: str = "time"
     y_variable: str | None = None
+    y_column_by_file: dict[str, str] = field(default_factory=dict)
     included_file_ids: list[str] | str = "all"
     auto_include_new_files: bool = True
     missing_column_policy: str = "skip_with_warning"
@@ -104,6 +115,7 @@ class HorizontalCompareConfig:
             "x_mode": self.x_mode,
             "x_column": self.x_column,
             "y_variable": self.y_variable,
+            "y_column_by_file": dict(self.y_column_by_file),
             "included_file_ids": self.included_file_ids,
             "auto_include_new_files": self.auto_include_new_files,
             "missing_column_policy": self.missing_column_policy,
@@ -122,6 +134,7 @@ class HorizontalCompareConfig:
             x_mode=str(data.get("x_mode", "mapped_time")),
             x_column=str(data.get("x_column", "time")),
             y_variable=data.get("y_variable"),
+            y_column_by_file={str(key): str(value) for key, value in data.get("y_column_by_file", {}).items()},
             included_file_ids=included,
             auto_include_new_files=bool(data.get("auto_include_new_files", True)),
             missing_column_policy=str(data.get("missing_column_policy", "skip_with_warning")),
@@ -180,6 +193,8 @@ class CustomPlotConfig:
     vertical_compare: VerticalCompareConfig = field(default_factory=VerticalCompareConfig)
     curves: list[CurveConfig] = field(default_factory=list)
     generated_curve_visibility: dict[str, bool] = field(default_factory=dict)
+    curve_overrides: dict[str, CurveOverride] = field(default_factory=dict)
+    curve_order: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -194,10 +209,18 @@ class CustomPlotConfig:
             "vertical_compare": self.vertical_compare.to_dict(),
             "curves": [curve.to_dict() for curve in self.curves],
             "generated_curve_visibility": dict(self.generated_curve_visibility),
+            "curve_overrides": {key: value.to_dict() for key, value in self.curve_overrides.items()},
+            "curve_order": list(self.curve_order),
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "CustomPlotConfig":
+        curve_overrides = {
+            str(key): CurveOverride.from_dict(value)
+            for key, value in data.get("curve_overrides", {}).items()
+        }
+        for curve_id, visible in data.get("generated_curve_visibility", {}).items():
+            curve_overrides.setdefault(str(curve_id), CurveOverride(visible=bool(visible)))
         return cls(
             plot_id=str(data["plot_id"]),
             plot_type="custom",
@@ -210,6 +233,8 @@ class CustomPlotConfig:
             vertical_compare=VerticalCompareConfig.from_dict(data.get("vertical_compare")),
             curves=[CurveConfig.from_dict(item) for item in data.get("curves", [])],
             generated_curve_visibility=dict(data.get("generated_curve_visibility", {})),
+            curve_overrides=curve_overrides,
+            curve_order=[str(item) for item in data.get("curve_order", [])],
         )
 
 

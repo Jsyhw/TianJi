@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from flightvis.constants import LINE_STYLES
+from flightvis.constants import AXIS_LABEL_PRESETS, LINE_STYLES
 
 
 class DisplaySettingsWidget(QWidget):
@@ -22,8 +22,8 @@ class DisplaySettingsWidget(QWidget):
         self.title_setter = title_setter
 
         self.title = QLineEdit(title_getter())
-        self.x_label = QLineEdit(display.x_label)
-        self.y_label = QLineEdit(display.y_label)
+        self.x_label = self._label_combo(display.x_label)
+        self.y_label = self._label_combo(display.y_label)
         self.grid = QCheckBox()
         self.grid.setChecked(display.show_grid)
         self.legend = QCheckBox()
@@ -65,6 +65,13 @@ class DisplaySettingsWidget(QWidget):
         layout.addRow("X轴范围", self._range_row(self.use_x_range, self.x_min, self.x_max))
         layout.addRow("Y轴范围", self._range_row(self.use_y_range, self.y_min, self.y_max))
 
+    def _label_combo(self, value: str) -> QComboBox:
+        combo = QComboBox()
+        combo.setEditable(True)
+        combo.addItems(AXIS_LABEL_PRESETS)
+        combo.setCurrentText(value)
+        return combo
+
     def _range_row(self, use_check, min_spin, max_spin):
         box = QGroupBox()
         layout = QHBoxLayout(box)
@@ -76,8 +83,8 @@ class DisplaySettingsWidget(QWidget):
 
     def apply(self) -> None:
         self.title_setter(self.title.text().strip() or "未命名图窗")
-        self.display.x_label = self.x_label.text().strip() or "time"
-        self.display.y_label = self.y_label.text().strip() or "value"
+        self.display.x_label = self.x_label.currentText().strip() or "time"
+        self.display.y_label = self.y_label.currentText().strip() or "value"
         self.display.show_grid = self.grid.isChecked()
         self.display.show_local_legend = self.legend.isChecked()
         self.display.line_width = float(self.line_width.value())

@@ -82,12 +82,34 @@ class DataManager:
     def remove_file(self, file_id: str) -> None:
         self.files = [item for item in self.files if item.file_id != file_id]
         self.project.data_files = [item for item in self.project.data_files if item.file_id != file_id]
+        trajectory = self.project.trajectory_view
+        trajectory.get("curve_overrides", {}).pop(file_id, None)
+        trajectory["curve_order"] = [curve_id for curve_id in trajectory.get("curve_order", []) if curve_id != file_id]
         for tab in self.project.tabs:
             for plot in tab.plots:
                 if getattr(plot, "plot_type", "") == "custom":
+                    removed_manual_ids = {curve.curve_id for curve in plot.curves if curve.file_id == file_id}
                     plot.curves = [curve for curve in plot.curves if curve.file_id != file_id]
+                    plot.horizontal_compare.y_column_by_file.pop(file_id, None)
+                    if plot.horizontal_compare.included_file_ids != "all":
+                        plot.horizontal_compare.included_file_ids = [
+                            item for item in plot.horizontal_compare.included_file_ids if item != file_id
+                        ]
+                    if plot.vertical_compare.file_id == file_id:
+                        plot.vertical_compare.file_id = None
+                    plot.curve_order = [
+                        curve_id
+                        for curve_id in plot.curve_order
+                        if not curve_id.startswith(f"{plot.plot_id}_{file_id}_")
+                        and curve_id not in removed_manual_ids
+                    ]
+                    for curve_id in list(plot.curve_overrides):
+                        if curve_id.startswith(f"{plot.plot_id}_{file_id}_") or curve_id in removed_manual_ids:
+                            plot.curve_overrides.pop(curve_id, None)
                 elif getattr(plot, "plot_type", "") == "preset":
                     plot.curve_visibility.pop(file_id, None)
+                    plot.curve_overrides.pop(file_id, None)
+                    plot.curve_order = [curve_id for curve_id in plot.curve_order if curve_id != file_id]
 
     def validate_alias(self, alias: str, existing_file_id: str | None = None) -> None:
         alias = alias.strip()

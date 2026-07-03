@@ -1,4 +1,4 @@
-APP_NAME = "FlightCSVVisualizer"
+APP_NAME = "TianJi"
 PROJECT_VERSION = "0.1"
 MAX_CSV_FILES = 10
 MAX_CSV_ROWS = 100_000
@@ -46,3 +46,19 @@ PRESET_PLOTS = [
 ]
 
 LINE_STYLES = ["-", "--", "-.", ":"]
+
+AXIS_LABEL_PRESETS = [
+    "time",
+    "value",
+    "时间 s",
+    "位置 m",
+    "速度 m/s",
+    "温度 K",
+    "力 N",
+    "能量 J",
+    "加速度 m/s^2",
+    "角度 rad",
+    "角度 deg",
+    "角速度 rad/s",
+    "角速度 deg/s",
+]

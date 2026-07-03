@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=['src'],
     binaries=[],
-    datas=[],
+    datas=[('src/flightvis/assets', 'assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={"matplotlib": {"backends": ["QtAgg"]}},
@@ -35,7 +35,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='FlightCSVVisualizer',
+    name='TianJi',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -46,6 +46,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='src/flightvis/assets/tianji_logo.ico',
 )
 coll = COLLECT(
     exe,
@@ -54,5 +55,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='FlightCSVVisualizer',
+    name='TianJi',
 )

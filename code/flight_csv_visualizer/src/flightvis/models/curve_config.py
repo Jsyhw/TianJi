@@ -15,6 +15,7 @@ class CurveConfig:
     color: str | None = None
     line_width: float = 1.5
     line_style: str = "-"
+    alpha: float = 1.0
     visible: bool = True
     visibility_version: int = 0
 
@@ -30,6 +31,7 @@ class CurveConfig:
             "color": self.color,
             "line_width": self.line_width,
             "line_style": self.line_style,
+            "alpha": self.alpha,
             "visible": self.visible,
             "visibility_version": self.visibility_version,
         }
@@ -47,6 +49,7 @@ class CurveConfig:
             color=data.get("color"),
             line_width=float(data.get("line_width", 1.5)),
             line_style=str(data.get("line_style", "-")),
+            alpha=float(data.get("alpha", 1.0)),
             visible=bool(data.get("visible", True)),
             visibility_version=int(data.get("visibility_version", data.get("visibility_modified_at", 0) or 0)),
         )

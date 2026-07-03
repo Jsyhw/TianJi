@@ -4,12 +4,13 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFormLayout,
-    QGroupBox,
-    QHBoxLayout,
     QListWidget,
     QListWidgetItem,
-    QRadioButton,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -17,141 +18,216 @@ from PySide6.QtWidgets import (
 from flightvis.constants import STANDARD_MAPPING_KEYS
 
 
-class CompareModeWidget(QWidget):
+class HorizontalCompareSettingsWidget(QWidget):
     def __init__(self, plot_config, data_manager, parent=None):
         super().__init__(parent)
         self.plot_config = plot_config
         self.data_manager = data_manager
 
-        self.manual = QRadioButton("手动曲线")
-        self.horizontal = QRadioButton("横向对比")
-        self.vertical = QRadioButton("纵向对比")
+        self.y_value = QComboBox()
+        self.x_mode = QComboBox()
+        self.x_mode.addItem("使用时间映射", "mapped_time")
+        self.x_mode.addItem("指定实际列", "actual_column")
+        self.x_value = QComboBox()
+        self.files = QTableWidget(0, 3)
+        self.files.setHorizontalHeaderLabels(["参与", "数据文件", "Y轴列"])
+        self.auto_include = QCheckBox("自动包含后续加载文件")
+        self.use_saved_mapping = True
 
-        self.h_compare_by = QComboBox()
-        self.h_compare_by.addItem("按标准变量映射", "mapped_variable")
-        self.h_compare_by.addItem("按实际列名", "actual_column")
-        self.h_y = QComboBox()
-        self.h_x_mode = QComboBox()
-        self.h_x_mode.addItem("使用时间映射", "mapped_time")
-        self.h_x_mode.addItem("指定实际列", "actual_column")
-        self.h_x = QComboBox()
-        self.h_files = QListWidget()
-        self.h_auto = QCheckBox("自动包含后续加载文件")
+        layout = QFormLayout(self)
+        layout.addRow("Y轴目标变量", self.y_value)
+        layout.addRow("X轴模式", self.x_mode)
+        layout.addRow("X轴列", self.x_value)
+        layout.addRow("参与文件与列映射", self.files)
+        layout.addRow("", self.auto_include)
+        self.populate()
+        self.y_value.currentTextChanged.connect(self.on_y_target_changed)
 
-        self.v_file = QComboBox()
-        self.v_x = QComboBox()
-        self.v_y = QListWidget()
+    def populate(self) -> None:
+        config = self.plot_config.horizontal_compare
+        columns = sorted({col for data_file in self.data_manager.list_files() for col in data_file.columns})
+        self.y_value.addItems(STANDARD_MAPPING_KEYS + columns)
+        self.x_value.addItems(["time"] + columns)
+        x_mode_index = self.x_mode.findData(config.x_mode)
+        if x_mode_index >= 0:
+            self.x_mode.setCurrentIndex(x_mode_index)
+        if config.y_variable:
+            self.y_value.setCurrentText(config.y_variable)
+        self.x_value.setCurrentText(config.x_column)
+        self.auto_include.setChecked(config.auto_include_new_files)
+        self.populate_file_mapping()
 
-        layout = QVBoxLayout(self)
-        mode_box = QGroupBox("绘图模式")
-        mode_layout = QHBoxLayout(mode_box)
-        mode_layout.addWidget(self.manual)
-        mode_layout.addWidget(self.horizontal)
-        mode_layout.addWidget(self.vertical)
-        layout.addWidget(mode_box)
+    def on_y_target_changed(self) -> None:
+        self.use_saved_mapping = False
+        self.populate_file_mapping()
 
-        h_box = QGroupBox("横向对比")
-        h_form = QFormLayout(h_box)
-        h_form.addRow("对比方式", self.h_compare_by)
-        h_form.addRow("Y变量/列", self.h_y)
-        h_form.addRow("X轴模式", self.h_x_mode)
-        h_form.addRow("X轴列", self.h_x)
-        h_form.addRow("参与文件", self.h_files)
-        h_form.addRow("", self.h_auto)
-        layout.addWidget(h_box)
+    def populate_file_mapping(self) -> None:
+        config = self.plot_config.horizontal_compare
+        target = self.y_value.currentText()
+        included = config.included_file_ids
+        data_files = self.data_manager.list_files()
+        self.files.setRowCount(len(data_files))
+        for row, data_file in enumerate(data_files):
+            selected_col = self.selected_y_column(data_file, target)
+            participate = bool(selected_col) and (included == "all" or data_file.file_id in included)
+            check = QCheckBox()
+            check.setChecked(participate)
+            self.files.setCellWidget(row, 0, check)
+            file_item = QTableWidgetItem(data_file.alias)
+            file_item.setData(Qt.UserRole, data_file.file_id)
+            file_item.setFlags(file_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.files.setItem(row, 1, file_item)
+            column = QComboBox()
+            column.addItem("不参与", "")
+            column.addItems(data_file.columns)
+            if selected_col:
+                column.setCurrentText(selected_col)
+            else:
+                column.setCurrentIndex(0)
+            column.currentTextChanged.connect(lambda text, check=check: check.setChecked(bool(text and text != "不参与")))
+            self.files.setCellWidget(row, 2, column)
+        self.files.resizeColumnsToContents()
 
-        v_box = QGroupBox("纵向对比")
-        v_form = QFormLayout(v_box)
-        v_form.addRow("数据文件", self.v_file)
-        v_form.addRow("X轴列", self.v_x)
-        v_form.addRow("Y轴列", self.v_y)
-        layout.addWidget(v_box)
-        self.v_file.currentIndexChanged.connect(self.populate_vertical_columns)
+    def selected_y_column(self, data_file, target: str) -> str:
+        explicit = self.plot_config.horizontal_compare.y_column_by_file.get(data_file.file_id)
+        if self.use_saved_mapping and explicit in data_file.columns:
+            return explicit
+        mapped = data_file.mapped_column(target)
+        if mapped in data_file.columns:
+            return mapped
+        if target in data_file.columns:
+            return target
+        return ""
+
+    def apply(self) -> None:
+        self.plot_config.plot_mode = "horizontal_compare"
+        self.plot_config.horizontal_compare.enabled = True
+        self.plot_config.vertical_compare.enabled = False
+
+        config = self.plot_config.horizontal_compare
+        config.compare_by = "actual_column"
+        config.y_variable = self.y_value.currentText() or None
+        config.x_mode = self.x_mode.currentData()
+        config.x_column = self.x_value.currentText() or "time"
+        config.auto_include_new_files = self.auto_include.isChecked()
+        included = []
+        mapping = {}
+        auto_matched = 0
+        for row in range(self.files.rowCount()):
+            item = self.files.item(row, 1)
+            check = self.files.cellWidget(row, 0)
+            column = self.files.cellWidget(row, 2)
+            file_id = item.data(Qt.UserRole)
+            y_col = column.currentData() if column.currentData() is not None else column.currentText()
+            if y_col:
+                auto_matched += 1
+            if check.isChecked() and y_col:
+                included.append(file_id)
+                mapping[file_id] = y_col
+        config.included_file_ids = "all" if self.auto_include.isChecked() and len(included) == auto_matched else included
+        config.y_column_by_file = mapping
+
+
+class VerticalCompareSettingsWidget(QWidget):
+    def __init__(self, plot_config, data_manager, parent=None):
+        super().__init__(parent)
+        self.plot_config = plot_config
+        self.data_manager = data_manager
+
+        self.file = QComboBox()
+        self.x_value = QComboBox()
+        self.y_values = QListWidget()
+
+        layout = QFormLayout(self)
+        layout.addRow("数据文件", self.file)
+        layout.addRow("X轴列", self.x_value)
+        layout.addRow("Y轴列", self.y_values)
+        self.file.currentIndexChanged.connect(self.populate_columns)
         self.populate()
 
     def populate(self) -> None:
-        mode = self.plot_config.plot_mode
-        self.manual.setChecked(mode == "manual")
-        self.horizontal.setChecked(mode == "horizontal_compare")
-        self.vertical.setChecked(mode == "vertical_compare")
-
-        columns = sorted({col for data_file in self.data_manager.list_files() for col in data_file.columns})
-        self.h_y.addItems(STANDARD_MAPPING_KEYS + columns)
-        self.h_x.addItems(["time"] + columns)
-        compare_index = self.h_compare_by.findData(self.plot_config.horizontal_compare.compare_by)
-        if compare_index >= 0:
-            self.h_compare_by.setCurrentIndex(compare_index)
-        x_mode_index = self.h_x_mode.findData(self.plot_config.horizontal_compare.x_mode)
-        if x_mode_index >= 0:
-            self.h_x_mode.setCurrentIndex(x_mode_index)
-        if self.plot_config.horizontal_compare.y_variable:
-            self.h_y.setCurrentText(self.plot_config.horizontal_compare.y_variable)
-        self.h_x.setCurrentText(self.plot_config.horizontal_compare.x_column)
-        self.h_auto.setChecked(self.plot_config.horizontal_compare.auto_include_new_files)
-
-        included = self.plot_config.horizontal_compare.included_file_ids
         for data_file in self.data_manager.list_files():
-            item = QListWidgetItem(data_file.alias)
-            item.setData(32, data_file.file_id)
-            item.setCheckState(Qt.Checked if included == "all" or data_file.file_id in included else Qt.Unchecked)
-            self.h_files.addItem(item)
-
-        for data_file in self.data_manager.list_files():
-            self.v_file.addItem(data_file.alias, data_file.file_id)
-        if self.plot_config.vertical_compare.file_id:
-            index = self.v_file.findData(self.plot_config.vertical_compare.file_id)
+            self.file.addItem(data_file.alias, data_file.file_id)
+        config = self.plot_config.vertical_compare
+        if config.file_id:
+            index = self.file.findData(config.file_id)
             if index >= 0:
-                self.v_file.setCurrentIndex(index)
-        self.populate_vertical_columns()
+                self.file.setCurrentIndex(index)
+        self.populate_columns()
 
-    def populate_vertical_columns(self) -> None:
-        self.v_x.clear()
-        self.v_y.clear()
-        file_id = self.v_file.currentData()
+    def populate_columns(self) -> None:
+        self.x_value.clear()
+        self.y_values.clear()
+        file_id = self.file.currentData()
         data_file = self.data_manager.get_file(file_id) if file_id else None
         columns = data_file.columns if data_file else []
-        self.v_x.addItems(columns)
-        if self.plot_config.vertical_compare.x_column in columns:
-            self.v_x.setCurrentText(self.plot_config.vertical_compare.x_column)
-        selected = set(self.plot_config.vertical_compare.y_columns)
+        self.x_value.addItems(columns)
+        config = self.plot_config.vertical_compare
+        if config.x_column in columns:
+            self.x_value.setCurrentText(config.x_column)
+        selected = set(config.y_columns)
         for column in columns:
             item = QListWidgetItem(column)
             item.setCheckState(Qt.Checked if column in selected else Qt.Unchecked)
-            self.v_y.addItem(item)
+            self.y_values.addItem(item)
 
     def apply(self) -> None:
-        if self.horizontal.isChecked():
-            self.plot_config.plot_mode = "horizontal_compare"
-            self.plot_config.horizontal_compare.enabled = True
-            self.plot_config.vertical_compare.enabled = False
-        elif self.vertical.isChecked():
-            self.plot_config.plot_mode = "vertical_compare"
-            self.plot_config.horizontal_compare.enabled = False
-            self.plot_config.vertical_compare.enabled = True
-        else:
-            self.plot_config.plot_mode = "manual"
-            self.plot_config.horizontal_compare.enabled = False
-            self.plot_config.vertical_compare.enabled = False
+        self.plot_config.plot_mode = "vertical_compare"
+        self.plot_config.horizontal_compare.enabled = False
+        self.plot_config.vertical_compare.enabled = True
 
-        h = self.plot_config.horizontal_compare
-        h.compare_by = self.h_compare_by.currentData()
-        h.y_variable = self.h_y.currentText() or None
-        h.x_mode = self.h_x_mode.currentData()
-        h.x_column = self.h_x.currentText() or "time"
-        h.auto_include_new_files = self.h_auto.isChecked()
-        included = []
-        for index in range(self.h_files.count()):
-            item = self.h_files.item(index)
-            if item.checkState() == Qt.Checked:
-                included.append(item.data(32))
-        h.included_file_ids = "all" if len(included) == self.h_files.count() else included
-
-        v = self.plot_config.vertical_compare
-        v.file_id = self.v_file.currentData()
-        v.x_column = self.v_x.currentText() or "time"
+        config = self.plot_config.vertical_compare
+        config.file_id = self.file.currentData()
+        config.x_column = self.x_value.currentText() or "time"
         y_columns = []
-        for index in range(self.v_y.count()):
-            item = self.v_y.item(index)
+        for index in range(self.y_values.count()):
+            item = self.y_values.item(index)
             if item.checkState() == Qt.Checked:
                 y_columns.append(item.text())
-        v.y_columns = y_columns
+        config.y_columns = y_columns
+
+
+class HorizontalCompareDialog(QDialog):
+    def __init__(self, plot_config, data_manager, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("横向对比设置")
+        self.settings = HorizontalCompareSettingsWidget(plot_config, data_manager)
+        self._setup_layout()
+
+    def _setup_layout(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.settings)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("确定")
+        buttons.button(QDialogButtonBox.Cancel).setText("取消")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.resize(520, 520)
+
+    def accept(self) -> None:
+        self.settings.apply()
+        super().accept()
+
+
+class VerticalCompareDialog(QDialog):
+    def __init__(self, plot_config, data_manager, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("纵向对比设置")
+        self.settings = VerticalCompareSettingsWidget(plot_config, data_manager)
+        self._setup_layout()
+
+    def _setup_layout(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.settings)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("确定")
+        buttons.button(QDialogButtonBox.Cancel).setText("取消")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.resize(480, 520)
+
+    def accept(self) -> None:
+        self.settings.apply()
+        super().accept()
