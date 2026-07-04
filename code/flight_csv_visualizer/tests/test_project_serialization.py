@@ -38,3 +38,23 @@ def test_horizontal_compare_column_mapping_round_trips():
     custom_plot.horizontal_compare.y_column_by_file = {"file_001": "vx"}
     restored = ProjectConfig.from_dict(project.to_dict())
     assert restored.tabs[1].plots[0].horizontal_compare.y_column_by_file == {"file_001": "vx"}
+
+
+def test_legacy_trajectory_equal_axis_maps_to_scale_mode():
+    data = create_default_project().to_dict()
+    data["trajectory_view"].pop("scale_mode", None)
+    data["trajectory_view"].pop("z_scale_ratio", None)
+    data["trajectory_view"]["equal_axis"] = True
+    restored = ProjectConfig.from_dict(data)
+    assert restored.trajectory_view["scale_mode"] == "true_equal"
+    assert restored.trajectory_view["z_scale_ratio"] == 1.0
+
+
+def test_legacy_trajectory_free_axis_maps_to_auto_balanced():
+    data = create_default_project().to_dict()
+    data["trajectory_view"].pop("scale_mode", None)
+    data["trajectory_view"].pop("z_scale_ratio", None)
+    data["trajectory_view"]["equal_axis"] = False
+    restored = ProjectConfig.from_dict(data)
+    assert restored.trajectory_view["scale_mode"] == "auto_balanced"
+    assert restored.trajectory_view["z_scale_ratio"] == 1.0

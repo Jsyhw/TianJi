@@ -11,6 +11,14 @@ from flightvis.plotting.downsample import downsample_xyz
 from flightvis.plotting.plot_renderer import apply_curve_override, order_curves
 from flightvis.plotting.style import apply_times_font, responsive_font_sizes
 
+TRAJECTORY_SCALE_AUTO = "auto_balanced"
+TRAJECTORY_SCALE_TRUE = "true_equal"
+TRAJECTORY_SCALE_FREE = "free"
+TRAJECTORY_SCALE_CUSTOM_Z = "custom_z"
+AUTO_Z_MIN_RATIO = 0.35
+AUTO_Z_MAX_RATIO = 2.0
+DEFAULT_Z_SCALE_RATIO = 1.0
+
 
 def build_trajectory_display_curves(data_files: list[DataFile], config: dict | None = None) -> list[CurveConfig]:
     config = config or {}
@@ -94,22 +102,54 @@ def draw_trajectory(ax, data_files: list[DataFile], config: dict | None = None) 
     ax.grid(bool(config.get("show_grid", True)))
     if all_points:
         ax.legend(loc="best", fontsize="small")
-        if config.get("equal_axis", False):
-            set_axes_equal(ax, all_points)
-        else:
-            set_axes_bounds(ax, all_points)
+        apply_scale_mode(ax, all_points, config)
     apply_times_font(ax)
 
 
-def set_axes_equal(ax, points: list[tuple[np.ndarray, np.ndarray, np.ndarray]]) -> None:
+def resolve_scale_mode(config: dict | None) -> str:
+    config = config or {}
+    mode = config.get("scale_mode")
+    if mode in {
+        TRAJECTORY_SCALE_AUTO,
+        TRAJECTORY_SCALE_TRUE,
+        TRAJECTORY_SCALE_FREE,
+        TRAJECTORY_SCALE_CUSTOM_Z,
+    }:
+        return str(mode)
+    return TRAJECTORY_SCALE_TRUE if config.get("equal_axis", False) else TRAJECTORY_SCALE_AUTO
+
+
+def apply_scale_mode(ax, points: list[tuple[np.ndarray, np.ndarray, np.ndarray]], config: dict | None = None) -> None:
     xs = np.concatenate([item[0] for item in points])
     ys = np.concatenate([item[1] for item in points])
     zs = np.concatenate([item[2] for item in points])
     x_span = set_axis_bounds(xs, ax.set_xlim)
     y_span = set_axis_bounds(ys, ax.set_ylim)
     z_span = set_axis_bounds(zs, ax.set_zlim)
-    if hasattr(ax, "set_box_aspect"):
-        ax.set_box_aspect((x_span, y_span, z_span))
+    mode = resolve_scale_mode(config)
+    if mode == TRAJECTORY_SCALE_FREE or not hasattr(ax, "set_box_aspect"):
+        return
+    xy_ref = max(x_span, y_span, 1e-9)
+    if mode == TRAJECTORY_SCALE_AUTO:
+        z_display_span = min(max(z_span, xy_ref * AUTO_Z_MIN_RATIO), xy_ref * AUTO_Z_MAX_RATIO)
+    elif mode == TRAJECTORY_SCALE_CUSTOM_Z:
+        ratio = float((config or {}).get("z_scale_ratio", DEFAULT_Z_SCALE_RATIO) or DEFAULT_Z_SCALE_RATIO)
+        z_display_span = xy_ref * min(max(ratio, 0.2), 5.0)
+    else:
+        z_display_span = z_span
+    ax.set_box_aspect((x_span, y_span, z_display_span))
+
+
+def set_axes_equal(ax, points: list[tuple[np.ndarray, np.ndarray, np.ndarray]]) -> None:
+    apply_scale_mode(ax, points, {"scale_mode": TRAJECTORY_SCALE_TRUE})
+
+
+def set_axes_auto_balanced(ax, points: list[tuple[np.ndarray, np.ndarray, np.ndarray]]) -> None:
+    apply_scale_mode(ax, points, {"scale_mode": TRAJECTORY_SCALE_AUTO})
+
+
+def set_axes_custom_z(ax, points: list[tuple[np.ndarray, np.ndarray, np.ndarray]], z_scale_ratio: float) -> None:
+    apply_scale_mode(ax, points, {"scale_mode": TRAJECTORY_SCALE_CUSTOM_Z, "z_scale_ratio": z_scale_ratio})
 
 
 def set_axes_bounds(ax, points: list[tuple[np.ndarray, np.ndarray, np.ndarray]]) -> None:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -8,6 +7,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QHBoxLayout,
+    QLabel,
     QPushButton,
     QTableWidget,
     QVBoxLayout,
@@ -15,7 +15,15 @@ from PySide6.QtWidgets import (
 
 from flightvis.constants import LINE_STYLES
 from flightvis.models.curve_override import CurveOverride
-from flightvis.plotting.trajectory_renderer import build_trajectory_display_curves
+from flightvis.plotting.trajectory_renderer import (
+    DEFAULT_Z_SCALE_RATIO,
+    TRAJECTORY_SCALE_AUTO,
+    TRAJECTORY_SCALE_CUSTOM_Z,
+    TRAJECTORY_SCALE_FREE,
+    TRAJECTORY_SCALE_TRUE,
+    build_trajectory_display_curves,
+    resolve_scale_mode,
+)
 from flightvis.ui.curve_manager_dialog import alpha_spin, readonly_item
 from flightvis.ui.widgets.color_button import ColorButton
 
@@ -30,11 +38,28 @@ class TrajectoryCurveManagerDialog(QDialog):
         self.display_curves = []
         self.table = QTableWidget(0, 9)
         self.table.setHorizontalHeaderLabels(["显示", "别名", "X轴列", "Y轴列", "Z轴列", "颜色", "线宽", "线型", "透明度"])
-        self.equal_axis = QCheckBox("各坐标轴等比例")
-        self.equal_axis.setChecked(bool(self.config.get("equal_axis", False)))
+        self.scale_mode = QComboBox()
+        self.scale_mode.addItem("自动均衡（推荐）", TRAJECTORY_SCALE_AUTO)
+        self.scale_mode.addItem("真实等比例", TRAJECTORY_SCALE_TRUE)
+        self.scale_mode.addItem("自由拉伸", TRAJECTORY_SCALE_FREE)
+        self.scale_mode.addItem("自定义Z比例", TRAJECTORY_SCALE_CUSTOM_Z)
+        mode_index = self.scale_mode.findData(resolve_scale_mode(self.config))
+        if mode_index >= 0:
+            self.scale_mode.setCurrentIndex(mode_index)
+        self.z_scale_ratio = QDoubleSpinBox()
+        self.z_scale_ratio.setRange(0.2, 5.0)
+        self.z_scale_ratio.setDecimals(2)
+        self.z_scale_ratio.setSingleStep(0.1)
+        self.z_scale_ratio.setValue(float(self.config.get("z_scale_ratio", DEFAULT_Z_SCALE_RATIO)))
 
         layout = QVBoxLayout(self)
-        layout.addWidget(self.equal_axis)
+        scale_row = QHBoxLayout()
+        scale_row.addWidget(QLabel("比例模式"))
+        scale_row.addWidget(self.scale_mode)
+        scale_row.addWidget(QLabel("Z比例"))
+        scale_row.addWidget(self.z_scale_ratio)
+        scale_row.addStretch(1)
+        layout.addLayout(scale_row)
         layout.addWidget(self.table)
 
         button_row = QHBoxLayout()
@@ -63,7 +88,9 @@ class TrajectoryCurveManagerDialog(QDialog):
         up.clicked.connect(lambda: self.move_selected(-1))
         down.clicked.connect(lambda: self.move_selected(1))
         reset.clicked.connect(self.reset_local)
+        self.scale_mode.currentIndexChanged.connect(self.update_z_scale_enabled)
         self.resize(760, 440)
+        self.update_z_scale_enabled()
         self.populate()
 
     def populate(self) -> None:
@@ -137,12 +164,20 @@ class TrajectoryCurveManagerDialog(QDialog):
     def reset_local(self) -> None:
         self.config.pop("curve_overrides", None)
         self.config.pop("curve_order", None)
-        self.equal_axis.setChecked(False)
+        self.scale_mode.setCurrentIndex(self.scale_mode.findData(TRAJECTORY_SCALE_AUTO))
+        self.z_scale_ratio.setValue(DEFAULT_Z_SCALE_RATIO)
+        self.update_z_scale_enabled()
         self.populate()
+
+    def update_z_scale_enabled(self) -> None:
+        self.z_scale_ratio.setEnabled(self.scale_mode.currentData() == TRAJECTORY_SCALE_CUSTOM_Z)
 
     def accept(self) -> None:
         self.capture_table_state()
-        self.config["equal_axis"] = self.equal_axis.isChecked()
+        mode = self.scale_mode.currentData() or TRAJECTORY_SCALE_AUTO
+        self.config["scale_mode"] = mode
+        self.config["z_scale_ratio"] = float(self.z_scale_ratio.value())
+        self.config["equal_axis"] = mode == TRAJECTORY_SCALE_TRUE
         self.config["curve_order"] = [curve.curve_id for curve in self.display_curves]
         overrides = {}
         for curve in self.display_curves:

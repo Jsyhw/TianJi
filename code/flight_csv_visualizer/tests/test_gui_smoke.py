@@ -3,6 +3,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import numpy as np
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QTabWidget
@@ -11,7 +12,14 @@ from flightvis.constants import AXIS_LABEL_PRESETS
 from flightvis.models.curve_config import CurveConfig
 from flightvis.models.tab_config import create_custom_tab
 from flightvis.plotting.plot_renderer import build_custom_display_curves, build_preset_display_curves
-from flightvis.plotting.trajectory_renderer import build_trajectory_display_curves, draw_trajectory
+from flightvis.plotting.trajectory_renderer import (
+    TRAJECTORY_SCALE_AUTO,
+    TRAJECTORY_SCALE_CUSTOM_Z,
+    TRAJECTORY_SCALE_TRUE,
+    apply_scale_mode,
+    build_trajectory_display_curves,
+    draw_trajectory,
+)
 from flightvis.resources import app_icon_path
 from flightvis.ui.compare_mode_widget import HorizontalCompareSettingsWidget
 from flightvis.ui.curve_manager_dialog import CustomCurveManagerDialog, PresetCurveManagerDialog
@@ -304,12 +312,53 @@ def test_trajectory_equal_axis_keeps_data_bounds(qapp):
     window.close()
 
 
+def test_trajectory_auto_scale_preserves_xy_and_limits_z(qapp):
+    from flightvis.plotting.mpl_canvas import MplCanvas
+
+    theta = np.linspace(0, 2 * np.pi, 200)
+    points = [(np.cos(theta), np.sin(theta), np.linspace(0, 100, len(theta)))]
+    canvas = MplCanvas(projection="3d")
+    apply_scale_mode(canvas.axes, points, {"scale_mode": TRAJECTORY_SCALE_AUTO})
+    x_span = canvas.axes.get_xlim()[1] - canvas.axes.get_xlim()[0]
+    y_span = canvas.axes.get_ylim()[1] - canvas.axes.get_ylim()[0]
+    z_span = canvas.axes.get_zlim()[1] - canvas.axes.get_zlim()[0]
+    aspect = canvas.axes.get_box_aspect()
+    assert x_span == pytest.approx(y_span, rel=1e-3)
+    assert z_span > x_span * 20
+    assert aspect[0] == pytest.approx(aspect[1], rel=1e-3)
+    assert aspect[2] / aspect[0] == pytest.approx(2.0, rel=1e-3)
+
+
+def test_trajectory_custom_z_scale_uses_user_ratio(qapp):
+    from flightvis.plotting.mpl_canvas import MplCanvas
+
+    theta = np.linspace(0, 2 * np.pi, 200)
+    points = [(np.cos(theta), np.sin(theta), np.linspace(0, 100, len(theta)))]
+    canvas = MplCanvas(projection="3d")
+    apply_scale_mode(canvas.axes, points, {"scale_mode": TRAJECTORY_SCALE_CUSTOM_Z, "z_scale_ratio": 0.5})
+    aspect = canvas.axes.get_box_aspect()
+    assert aspect[0] == pytest.approx(aspect[1], rel=1e-3)
+    assert aspect[2] / aspect[0] == pytest.approx(0.5, rel=1e-3)
+
+
+def test_trajectory_true_equal_keeps_physical_z_ratio(qapp):
+    from flightvis.plotting.mpl_canvas import MplCanvas
+
+    theta = np.linspace(0, 2 * np.pi, 200)
+    points = [(np.cos(theta), np.sin(theta), np.linspace(0, 100, len(theta)))]
+    canvas = MplCanvas(projection="3d")
+    apply_scale_mode(canvas.axes, points, {"scale_mode": TRAJECTORY_SCALE_TRUE})
+    aspect = canvas.axes.get_box_aspect()
+    assert aspect[2] / aspect[0] > 20
+
+
 def test_trajectory_curve_manager_updates_style_alpha_and_equal_axis(qapp):
     window = make_window_with_examples(qapp)
     first_id = build_trajectory_display_curves(window.data_manager.list_files(), window.project.trajectory_view)[0].curve_id
     dialog = TrajectoryCurveManagerDialog(window.data_manager, window.project, window)
     assert dialog.table.rowCount() == 3
-    dialog.equal_axis.setChecked(True)
+    dialog.scale_mode.setCurrentIndex(dialog.scale_mode.findData(TRAJECTORY_SCALE_CUSTOM_Z))
+    dialog.z_scale_ratio.setValue(0.75)
     dialog.table.selectRow(0)
     dialog.table.cellWidget(0, 5).set_color("#654321")
     dialog.table.cellWidget(0, 6).setValue(3.4)
@@ -318,7 +367,9 @@ def test_trajectory_curve_manager_updates_style_alpha_and_equal_axis(qapp):
     dialog.move_selected(1)
     dialog.accept()
 
-    assert window.project.trajectory_view["equal_axis"] is True
+    assert window.project.trajectory_view["scale_mode"] == TRAJECTORY_SCALE_CUSTOM_Z
+    assert window.project.trajectory_view["z_scale_ratio"] == pytest.approx(0.75)
+    assert window.project.trajectory_view["equal_axis"] is False
     assert window.project.trajectory_view["curve_order"][1] == first_id
     override = window.project.trajectory_view["curve_overrides"][first_id]
     assert override["color"] == "#654321"
