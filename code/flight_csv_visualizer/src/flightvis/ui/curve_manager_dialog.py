@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from flightvis.constants import LINE_STYLES
+from flightvis.core.visibility_manager import effective_custom_curve_visible
 from flightvis.models.curve_override import CurveOverride
 from flightvis.models.visibility import VisibilityState
 from flightvis.plotting.plot_renderer import build_custom_display_curves, build_preset_display_curves
@@ -64,10 +65,11 @@ class PresetCurveManagerDialog(QDialog):
         self.display_curves = build_preset_display_curves(self.plot_config, self.data_manager.list_files())
         self.table.setRowCount(len(self.display_curves))
         for row, curve in enumerate(self.display_curves):
+            file_config = self.data_manager.get_config(curve.file_id)
             self.table.setItem(row, 0, QTableWidgetItem())
             self.table.item(row, 0).setData(Qt.UserRole, curve.curve_id)
             check = QCheckBox()
-            check.setChecked(curve.visible)
+            check.setChecked(effective_curve_checked(file_config, curve))
             self.table.setCellWidget(row, 0, check)
             self.table.setItem(row, 1, readonly_item(curve.label))
             self.table.setItem(row, 2, readonly_item(curve.x_column))
@@ -105,7 +107,7 @@ class PresetCurveManagerDialog(QDialog):
             return
         self.capture_table_state()
         self.display_curves[row], self.display_curves[new_row] = self.display_curves[new_row], self.display_curves[row]
-        self.populate_from_display_curves()
+        self.populate_from_display_curves(use_effective=False)
         self.table.selectRow(new_row)
 
     def capture_table_state(self) -> None:
@@ -122,12 +124,13 @@ class PresetCurveManagerDialog(QDialog):
             curve.line_style = style.currentText()
             curve.alpha = float(alpha.value())
 
-    def populate_from_display_curves(self) -> None:
+    def populate_from_display_curves(self, use_effective: bool = True) -> None:
         current = self.display_curves
         self.table.setRowCount(len(current))
         for row, curve in enumerate(current):
+            file_config = self.data_manager.get_config(curve.file_id)
             check = QCheckBox()
-            check.setChecked(curve.visible)
+            check.setChecked(effective_curve_checked(file_config, curve) if use_effective else curve.visible)
             self.table.setCellWidget(row, 0, check)
             self.table.setItem(row, 1, readonly_item(curve.label))
             self.table.setItem(row, 2, readonly_item(curve.x_column))
@@ -214,18 +217,18 @@ class CustomCurveManagerDialog(QDialog):
         self.display_curves = build_custom_display_curves(self.plot_config, self.data_manager.list_files())
         self.populate_from_display_curves()
 
-    def populate_from_display_curves(self) -> None:
+    def populate_from_display_curves(self, use_effective: bool = True) -> None:
         self.table.setRowCount(len(self.display_curves))
         for row, curve in enumerate(self.display_curves):
+            file_config = self.data_manager.get_config(curve.file_id)
             check = QCheckBox()
-            check.setChecked(curve.visible)
+            check.setChecked(effective_curve_checked(file_config, curve) if use_effective else curve.visible)
             self.table.setCellWidget(row, 0, check)
             name = QTableWidgetItem(curve.label)
             if curve.source != "manual":
                 name.setFlags(name.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row, 1, name)
             self.table.setItem(row, 2, readonly_item(source_label(curve.source)))
-            file_config = self.data_manager.get_config(curve.file_id)
             self.table.setItem(row, 3, readonly_item(file_config.alias if file_config else curve.file_id))
             self.table.setItem(row, 4, readonly_item(curve.x_column))
             self.table.setItem(row, 5, readonly_item(curve.y_column))
@@ -271,7 +274,7 @@ class CustomCurveManagerDialog(QDialog):
             return
         self.capture_table_state()
         self.display_curves[row], self.display_curves[new_row] = self.display_curves[new_row], self.display_curves[row]
-        self.populate_from_display_curves()
+        self.populate_from_display_curves(use_effective=False)
         self.table.selectRow(new_row)
 
     def capture_table_state(self) -> None:
@@ -335,6 +338,12 @@ def alpha_spin(value: float = 1.0) -> QDoubleSpinBox:
     spin.setSingleStep(0.05)
     spin.setValue(value)
     return spin
+
+
+def effective_curve_checked(file_config, curve) -> bool:
+    if file_config is None:
+        return curve.visible
+    return effective_custom_curve_visible(file_config, curve)
 
 
 def source_label(source: str) -> str:

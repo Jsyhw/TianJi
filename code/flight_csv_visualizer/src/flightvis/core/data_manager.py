@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import colorsys
 from pathlib import Path
 
 from flightvis.constants import DEFAULT_COLORS, MAX_CSV_FILES
@@ -41,7 +42,7 @@ class DataManager:
         alias = alias or self.project.allocate_alias()
         self.validate_alias(alias)
         file_id = self.project.allocate_file_id()
-        color = DEFAULT_COLORS[(len(self.project.data_files)) % len(DEFAULT_COLORS)]
+        color = self.next_file_color()
         config = DataFileConfig(
             file_id=file_id,
             path=str(Path(path)),
@@ -53,6 +54,20 @@ class DataManager:
         self.project.data_files.append(config)
         self.files.append(data_file)
         return data_file
+
+    def next_file_color(self) -> str:
+        used = {config.color.lower() for config in self.project.data_files}
+        for color in DEFAULT_COLORS:
+            if color.lower() not in used:
+                return color
+        index = len(self.project.data_files)
+        while True:
+            hue = (index * 0.618033988749895) % 1.0
+            red, green, blue = colorsys.hsv_to_rgb(hue, 0.58, 0.82)
+            color = f"#{int(red * 255):02x}{int(green * 255):02x}{int(blue * 255):02x}"
+            if color.lower() not in used:
+                return color
+            index += 1
 
     def add_loaded_config(self, config: DataFileConfig) -> DataFile:
         dataframe = read_csv(config.path)

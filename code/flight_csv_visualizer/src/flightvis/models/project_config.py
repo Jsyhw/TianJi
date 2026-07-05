@@ -31,6 +31,7 @@ class ProjectConfig:
         "equal_axis": False,
         "scale_mode": "auto_balanced",
         "z_scale_ratio": 1.0,
+        "auto_fit_view": True,
     })
     tabs: list[TabConfig] = field(default_factory=list)
     settings: dict = field(default_factory=dict)
@@ -106,6 +107,7 @@ class ProjectConfig:
         if "scale_mode" not in project.trajectory_view:
             project.trajectory_view["scale_mode"] = "true_equal" if project.trajectory_view.get("equal_axis", False) else "auto_balanced"
         project.trajectory_view.setdefault("z_scale_ratio", 1.0)
+        project.trajectory_view.setdefault("auto_fit_view", True)
         return project
 
 

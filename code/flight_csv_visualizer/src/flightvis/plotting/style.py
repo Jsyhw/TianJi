@@ -10,6 +10,7 @@ PLOT_FONT_FAMILY = ["Times New Roman", "Microsoft YaHei", "SimSun", "DejaVu Sans
 def configure_matplotlib_fonts() -> None:
     matplotlib.rcParams["font.family"] = PLOT_FONT_FAMILY
     matplotlib.rcParams["axes.unicode_minus"] = False
+    matplotlib.rcParams["axes3d.mouserotationstyle"] = "azel"
 
 
 def variable_color(index: int) -> str:

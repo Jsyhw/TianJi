@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from flightvis.constants import LINE_STYLES
+from flightvis.core.visibility_manager import effective_custom_curve_visible
 from flightvis.models.curve_override import CurveOverride
 from flightvis.plotting.trajectory_renderer import (
     DEFAULT_Z_SCALE_RATIO,
@@ -51,6 +52,8 @@ class TrajectoryCurveManagerDialog(QDialog):
         self.z_scale_ratio.setDecimals(2)
         self.z_scale_ratio.setSingleStep(0.1)
         self.z_scale_ratio.setValue(float(self.config.get("z_scale_ratio", DEFAULT_Z_SCALE_RATIO)))
+        self.auto_fit_view = QCheckBox("旋转时自动填充画布")
+        self.auto_fit_view.setChecked(bool(self.config.get("auto_fit_view", True)))
 
         layout = QVBoxLayout(self)
         scale_row = QHBoxLayout()
@@ -58,6 +61,7 @@ class TrajectoryCurveManagerDialog(QDialog):
         scale_row.addWidget(self.scale_mode)
         scale_row.addWidget(QLabel("Z比例"))
         scale_row.addWidget(self.z_scale_ratio)
+        scale_row.addWidget(self.auto_fit_view)
         scale_row.addStretch(1)
         layout.addLayout(scale_row)
         layout.addWidget(self.table)
@@ -97,13 +101,16 @@ class TrajectoryCurveManagerDialog(QDialog):
         self.display_curves = build_trajectory_display_curves(self.data_manager.list_files(), self.config)
         self.populate_from_display_curves()
 
-    def populate_from_display_curves(self) -> None:
+    def populate_from_display_curves(self, use_effective: bool = True) -> None:
         self.table.setRowCount(len(self.display_curves))
         for row, curve in enumerate(self.display_curves):
             data_file = self.data_manager.get_file(curve.file_id)
             z_col = data_file.mapped_column("z") if data_file else ""
             check = QCheckBox()
-            check.setChecked(curve.visible)
+            if use_effective and data_file:
+                check.setChecked(effective_custom_curve_visible(data_file.config, curve))
+            else:
+                check.setChecked(curve.visible)
             self.table.setCellWidget(row, 0, check)
             self.table.setItem(row, 1, readonly_item(curve.label))
             self.table.setItem(row, 2, readonly_item(curve.x_column))
@@ -138,7 +145,7 @@ class TrajectoryCurveManagerDialog(QDialog):
             return
         self.capture_table_state()
         self.display_curves[row], self.display_curves[new_row] = self.display_curves[new_row], self.display_curves[row]
-        self.populate_from_display_curves()
+        self.populate_from_display_curves(use_effective=False)
         self.table.selectRow(new_row)
 
     def capture_table_state(self) -> None:
@@ -166,6 +173,7 @@ class TrajectoryCurveManagerDialog(QDialog):
         self.config.pop("curve_order", None)
         self.scale_mode.setCurrentIndex(self.scale_mode.findData(TRAJECTORY_SCALE_AUTO))
         self.z_scale_ratio.setValue(DEFAULT_Z_SCALE_RATIO)
+        self.auto_fit_view.setChecked(True)
         self.update_z_scale_enabled()
         self.populate()
 
@@ -177,6 +185,7 @@ class TrajectoryCurveManagerDialog(QDialog):
         mode = self.scale_mode.currentData() or TRAJECTORY_SCALE_AUTO
         self.config["scale_mode"] = mode
         self.config["z_scale_ratio"] = float(self.z_scale_ratio.value())
+        self.config["auto_fit_view"] = self.auto_fit_view.isChecked()
         self.config["equal_axis"] = mode == TRAJECTORY_SCALE_TRUE
         self.config["curve_order"] = [curve.curve_id for curve in self.display_curves]
         overrides = {}

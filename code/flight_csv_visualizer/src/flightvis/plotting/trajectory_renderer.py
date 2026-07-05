@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import itertools
+
 import numpy as np
+from mpl_toolkits.mplot3d import proj3d
 
 from flightvis.constants import TRAJECTORY_MAX_POINTS
 from flightvis.core.visibility_manager import effective_custom_curve_visible
@@ -18,6 +21,10 @@ TRAJECTORY_SCALE_CUSTOM_Z = "custom_z"
 AUTO_Z_MIN_RATIO = 0.35
 AUTO_Z_MAX_RATIO = 2.0
 DEFAULT_Z_SCALE_RATIO = 1.0
+AUTO_FIT_TARGET_FILL = 0.88
+AUTO_FIT_MIN_ZOOM = 0.72
+AUTO_FIT_MAX_ZOOM = 1.35
+DEFAULT_BOX_ZOOM = 1.0
 
 
 def build_trajectory_display_curves(data_files: list[DataFile], config: dict | None = None) -> list[CurveConfig]:
@@ -64,6 +71,7 @@ def draw_trajectory(ax, data_files: list[DataFile], config: dict | None = None) 
     labels = config.get("labels", {"x": "X", "y": "Y", "z": "Z"})
     show_endpoints = bool(config.get("show_endpoints", True))
     ax.clear()
+    enforce_matlab_view(ax)
     all_points: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
     curves = build_trajectory_display_curves(data_files, config)
     for curve in reversed(curves):
@@ -120,6 +128,7 @@ def resolve_scale_mode(config: dict | None) -> str:
 
 
 def apply_scale_mode(ax, points: list[tuple[np.ndarray, np.ndarray, np.ndarray]], config: dict | None = None) -> None:
+    config = config or {}
     xs = np.concatenate([item[0] for item in points])
     ys = np.concatenate([item[1] for item in points])
     zs = np.concatenate([item[2] for item in points])
@@ -127,7 +136,12 @@ def apply_scale_mode(ax, points: list[tuple[np.ndarray, np.ndarray, np.ndarray]]
     y_span = set_axis_bounds(ys, ax.set_ylim)
     z_span = set_axis_bounds(zs, ax.set_zlim)
     mode = resolve_scale_mode(config)
-    if mode == TRAJECTORY_SCALE_FREE or not hasattr(ax, "set_box_aspect"):
+    if not hasattr(ax, "set_box_aspect"):
+        return
+    if mode == TRAJECTORY_SCALE_FREE:
+        if config.get("auto_fit_view", True):
+            aspect = tuple(float(item) for item in ax.get_box_aspect())
+            ax.set_box_aspect(aspect, zoom=auto_fit_zoom(ax, aspect))
         return
     xy_ref = max(x_span, y_span, 1e-9)
     if mode == TRAJECTORY_SCALE_AUTO:
@@ -137,7 +151,45 @@ def apply_scale_mode(ax, points: list[tuple[np.ndarray, np.ndarray, np.ndarray]]
         z_display_span = xy_ref * min(max(ratio, 0.2), 5.0)
     else:
         z_display_span = z_span
-    ax.set_box_aspect((x_span, y_span, z_display_span))
+    aspect = (x_span, y_span, z_display_span)
+    zoom = auto_fit_zoom(ax, aspect) if config.get("auto_fit_view", True) else DEFAULT_BOX_ZOOM
+    ax.set_box_aspect(aspect, zoom=zoom)
+
+
+def enforce_matlab_view(ax) -> None:
+    elev = getattr(ax, "elev", None)
+    azim = getattr(ax, "azim", None)
+    try:
+        ax.view_init(elev=elev, azim=azim, roll=0, vertical_axis="z")
+    except TypeError:
+        ax.view_init(elev=elev, azim=azim)
+
+
+def auto_fit_zoom(
+    ax,
+    aspect: tuple[float, float, float],
+    target_fill: float = AUTO_FIT_TARGET_FILL,
+    min_zoom: float = AUTO_FIT_MIN_ZOOM,
+    max_zoom: float = AUTO_FIT_MAX_ZOOM,
+) -> float:
+    if not hasattr(ax, "set_box_aspect"):
+        return DEFAULT_BOX_ZOOM
+    ax.set_box_aspect(aspect, zoom=DEFAULT_BOX_ZOOM)
+    fill = projected_bounds_fill(ax)
+    if not np.isfinite(fill) or fill <= 0:
+        return DEFAULT_BOX_ZOOM
+    return float(np.clip(target_fill / fill, min_zoom, max_zoom))
+
+
+def projected_bounds_fill(ax) -> float:
+    xlim = ax.get_xlim3d()
+    ylim = ax.get_ylim3d()
+    zlim = ax.get_zlim3d()
+    corners = np.array(list(itertools.product(xlim, ylim, zlim)), dtype=float)
+    xs, ys, _ = proj3d.proj_transform(corners[:, 0], corners[:, 1], corners[:, 2], ax.get_proj())
+    width = float(np.nanmax(xs) - np.nanmin(xs))
+    height = float(np.nanmax(ys) - np.nanmin(ys))
+    return max(width, height)
 
 
 def set_axes_equal(ax, points: list[tuple[np.ndarray, np.ndarray, np.ndarray]]) -> None:

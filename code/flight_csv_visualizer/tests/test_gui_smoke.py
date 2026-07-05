@@ -3,6 +3,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import matplotlib
 import numpy as np
 import pytest
 from PySide6.QtCore import Qt
@@ -13,13 +14,18 @@ from flightvis.models.curve_config import CurveConfig
 from flightvis.models.tab_config import create_custom_tab
 from flightvis.plotting.plot_renderer import build_custom_display_curves, build_preset_display_curves
 from flightvis.plotting.trajectory_renderer import (
+    AUTO_FIT_MAX_ZOOM,
+    AUTO_FIT_MIN_ZOOM,
     TRAJECTORY_SCALE_AUTO,
     TRAJECTORY_SCALE_CUSTOM_Z,
     TRAJECTORY_SCALE_TRUE,
     apply_scale_mode,
+    auto_fit_zoom,
     build_trajectory_display_curves,
     draw_trajectory,
+    enforce_matlab_view,
 )
+from flightvis.plotting.style import configure_matplotlib_fonts
 from flightvis.resources import app_icon_path
 from flightvis.ui.compare_mode_widget import HorizontalCompareSettingsWidget
 from flightvis.ui.curve_manager_dialog import CustomCurveManagerDialog, PresetCurveManagerDialog
@@ -260,6 +266,41 @@ def test_preset_curve_manager_supports_order_and_style(qapp):
     window.close()
 
 
+def test_preset_curve_manager_reflects_global_hidden_state_and_can_reopen(qapp):
+    window = make_window_with_examples(qapp)
+    data_file = window.data_manager.list_files()[0]
+    window.data_manager.set_visible(data_file.file_id, False)
+    plot = window.project.tabs[0].plots[0]
+
+    dialog = PresetCurveManagerDialog(plot, window.data_manager, window.project, window)
+    assert dialog.table.cellWidget(0, 0).isChecked() is False
+    dialog.table.cellWidget(0, 0).setChecked(True)
+    dialog.accept()
+
+    curves = build_preset_display_curves(plot, window.data_manager.list_files())
+    reopened = next(curve for curve in curves if curve.file_id == data_file.file_id)
+    assert reopened.visible is True
+    assert reopened.visibility_version > data_file.config.visibility_version
+    window.project_manager.dirty = False
+    window.close()
+
+
+def test_custom_curve_manager_reflects_global_hidden_state(qapp):
+    window = make_window_with_examples(qapp)
+    tab_id = window.project.allocate_tab_id()
+    window.project.tabs.append(create_custom_tab(tab_id, "手动", 1, 1))
+    plot = window.project.tabs[1].plots[0]
+    data_file = window.data_manager.list_files()[0]
+    plot.curves.append(CurveConfig("manual_001", "manual", data_file.file_id, "time", "vx", "manual vx"))
+    window.data_manager.set_visible(data_file.file_id, False)
+
+    dialog = CustomCurveManagerDialog(plot, window.data_manager, window.project, window)
+    assert dialog.table.cellWidget(0, 0).isChecked() is False
+    dialog.close()
+    window.project_manager.dirty = False
+    window.close()
+
+
 def test_csv_dialog_directory_uses_last_existing_folder(qapp):
     window = MainWindow()
     window.project.settings["last_csv_dir"] = str(EXAMPLE_DIR)
@@ -329,6 +370,34 @@ def test_trajectory_auto_scale_preserves_xy_and_limits_z(qapp):
     assert aspect[2] / aspect[0] == pytest.approx(2.0, rel=1e-3)
 
 
+def test_matplotlib_3d_rotation_style_is_azel():
+    configure_matplotlib_fonts()
+    assert matplotlib.rcParams["axes3d.mouserotationstyle"] == "azel"
+
+
+def test_trajectory_view_roll_is_locked_to_zero(qapp):
+    from flightvis.plotting.mpl_canvas import MplCanvas
+
+    canvas = MplCanvas(projection="3d")
+    canvas.axes.view_init(elev=30, azim=45, roll=25)
+    enforce_matlab_view(canvas.axes)
+    assert getattr(canvas.axes, "roll", 0) == pytest.approx(0)
+
+
+def test_auto_fit_zoom_is_bounded_and_keeps_data_limits(qapp):
+    from flightvis.plotting.mpl_canvas import MplCanvas
+
+    theta = np.linspace(0, 2 * np.pi, 200)
+    points = [(np.cos(theta), np.sin(theta), np.linspace(0, 100, len(theta)))]
+    canvas = MplCanvas(projection="3d")
+    apply_scale_mode(canvas.axes, points, {"scale_mode": TRAJECTORY_SCALE_AUTO, "auto_fit_view": False})
+    before = (canvas.axes.get_xlim(), canvas.axes.get_ylim(), canvas.axes.get_zlim())
+    zoom = auto_fit_zoom(canvas.axes, tuple(float(item) for item in canvas.axes.get_box_aspect()))
+    after = (canvas.axes.get_xlim(), canvas.axes.get_ylim(), canvas.axes.get_zlim())
+    assert AUTO_FIT_MIN_ZOOM <= zoom <= AUTO_FIT_MAX_ZOOM
+    assert after == before
+
+
 def test_trajectory_custom_z_scale_uses_user_ratio(qapp):
     from flightvis.plotting.mpl_canvas import MplCanvas
 
@@ -359,6 +428,7 @@ def test_trajectory_curve_manager_updates_style_alpha_and_equal_axis(qapp):
     assert dialog.table.rowCount() == 3
     dialog.scale_mode.setCurrentIndex(dialog.scale_mode.findData(TRAJECTORY_SCALE_CUSTOM_Z))
     dialog.z_scale_ratio.setValue(0.75)
+    dialog.auto_fit_view.setChecked(False)
     dialog.table.selectRow(0)
     dialog.table.cellWidget(0, 5).set_color("#654321")
     dialog.table.cellWidget(0, 6).setValue(3.4)
@@ -369,6 +439,7 @@ def test_trajectory_curve_manager_updates_style_alpha_and_equal_axis(qapp):
 
     assert window.project.trajectory_view["scale_mode"] == TRAJECTORY_SCALE_CUSTOM_Z
     assert window.project.trajectory_view["z_scale_ratio"] == pytest.approx(0.75)
+    assert window.project.trajectory_view["auto_fit_view"] is False
     assert window.project.trajectory_view["equal_axis"] is False
     assert window.project.trajectory_view["curve_order"][1] == first_id
     override = window.project.trajectory_view["curve_overrides"][first_id]
@@ -380,6 +451,18 @@ def test_trajectory_curve_manager_updates_style_alpha_and_equal_axis(qapp):
     moved = next(curve for curve in curves if curve.curve_id == first_id)
     assert moved.alpha == pytest.approx(0.4)
     assert moved.color == "#654321"
+    window.project_manager.dirty = False
+    window.close()
+
+
+def test_trajectory_curve_manager_reflects_global_hidden_state(qapp):
+    window = make_window_with_examples(qapp)
+    data_file = window.data_manager.list_files()[0]
+    window.data_manager.set_visible(data_file.file_id, False)
+
+    dialog = TrajectoryCurveManagerDialog(window.data_manager, window.project, window)
+    assert dialog.table.cellWidget(0, 0).isChecked() is False
+    dialog.close()
     window.project_manager.dirty = False
     window.close()
 

@@ -29,6 +29,7 @@ def test_default_project_round_trips():
     assert restored_plot.curve_order == ["file_002", "file_001"]
     assert restored_plot.curve_overrides["file_001"].color == "#123456"
     assert restored_plot.curve_overrides["file_001"].alpha == 0.55
+    assert restored.trajectory_view["auto_fit_view"] is True
 
 
 def test_horizontal_compare_column_mapping_round_trips():
@@ -44,17 +45,21 @@ def test_legacy_trajectory_equal_axis_maps_to_scale_mode():
     data = create_default_project().to_dict()
     data["trajectory_view"].pop("scale_mode", None)
     data["trajectory_view"].pop("z_scale_ratio", None)
+    data["trajectory_view"].pop("auto_fit_view", None)
     data["trajectory_view"]["equal_axis"] = True
     restored = ProjectConfig.from_dict(data)
     assert restored.trajectory_view["scale_mode"] == "true_equal"
     assert restored.trajectory_view["z_scale_ratio"] == 1.0
+    assert restored.trajectory_view["auto_fit_view"] is True
 
 
 def test_legacy_trajectory_free_axis_maps_to_auto_balanced():
     data = create_default_project().to_dict()
     data["trajectory_view"].pop("scale_mode", None)
     data["trajectory_view"].pop("z_scale_ratio", None)
+    data["trajectory_view"].pop("auto_fit_view", None)
     data["trajectory_view"]["equal_axis"] = False
     restored = ProjectConfig.from_dict(data)
     assert restored.trajectory_view["scale_mode"] == "auto_balanced"
     assert restored.trajectory_view["z_scale_ratio"] == 1.0
+    assert restored.trajectory_view["auto_fit_view"] is True
