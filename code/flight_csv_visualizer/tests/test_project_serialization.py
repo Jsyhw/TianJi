@@ -41,6 +41,39 @@ def test_horizontal_compare_column_mapping_round_trips():
     assert restored.tabs[1].plots[0].horizontal_compare.y_column_by_file == {"file_001": "vx"}
 
 
+def test_custom_plot_span_round_trips_and_legacy_defaults():
+    project = create_default_project()
+    project.tabs.append(create_custom_tab("custom_001", "custom", 3, 3, [(0, 0, 2, 2), (0, 2, 1, 1)]))
+    restored = ProjectConfig.from_dict(project.to_dict())
+    assert restored.tabs[1].plots[0].row_span == 2
+    assert restored.tabs[1].plots[0].col_span == 2
+
+    legacy_data = restored.to_dict()
+    legacy_plot = legacy_data["tabs"][1]["plots"][0]
+    legacy_plot.pop("row_span", None)
+    legacy_plot.pop("col_span", None)
+    legacy_restored = ProjectConfig.from_dict(legacy_data)
+    assert legacy_restored.tabs[1].plots[0].row_span == 1
+    assert legacy_restored.tabs[1].plots[0].col_span == 1
+
+
+def test_create_custom_tab_supports_advanced_regions():
+    tab = create_custom_tab(
+        "custom_002",
+        "advanced",
+        3,
+        3,
+        [(0, 0, 2, 2), (0, 2, 1, 1), (1, 2, 2, 1), (2, 0, 1, 2)],
+    )
+    assert len(tab.plots) == 4
+    assert [(plot.row, plot.col, plot.row_span, plot.col_span) for plot in tab.plots] == [
+        (0, 0, 2, 2),
+        (0, 2, 1, 1),
+        (1, 2, 2, 1),
+        (2, 0, 1, 2),
+    ]
+
+
 def test_legacy_trajectory_equal_axis_maps_to_scale_mode():
     data = create_default_project().to_dict()
     data["trajectory_view"].pop("scale_mode", None)

@@ -192,9 +192,9 @@ class MainWindow(QMainWindow):
         dialog = NewTabDialog({tab.name for tab in self.project.tabs}, self)
         if not dialog.exec():
             return
-        name, rows, cols = dialog.values()
+        name, rows, cols, layout = dialog.values()
         tab_id = self.project.allocate_tab_id()
-        self.project.tabs.append(create_custom_tab(tab_id, name, rows, cols))
+        self.project.tabs.append(create_custom_tab(tab_id, name, rows, cols, layout))
         self.project_manager.mark_dirty()
         self.refresh_all_views(preferred_tab_id=tab_id)
 

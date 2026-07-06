@@ -54,6 +54,8 @@ class PresetPlotConfig:
     preset_variable: str = "vx"
     row: int = 0
     col: int = 0
+    row_span: int = 1
+    col_span: int = 1
     title: str = ""
     display: DisplayConfig = field(default_factory=DisplayConfig)
     curve_visibility: dict[str, VisibilityState] = field(default_factory=dict)
@@ -67,6 +69,8 @@ class PresetPlotConfig:
             "preset_variable": self.preset_variable,
             "row": self.row,
             "col": self.col,
+            "row_span": self.row_span,
+            "col_span": self.col_span,
             "title": self.title,
             "display": self.display.to_dict(),
             "curve_visibility": {key: value.to_dict() for key, value in self.curve_visibility.items()},
@@ -82,6 +86,8 @@ class PresetPlotConfig:
             preset_variable=str(data.get("preset_variable", "vx")),
             row=int(data.get("row", 0)),
             col=int(data.get("col", 0)),
+            row_span=max(1, int(data.get("row_span", 1))),
+            col_span=max(1, int(data.get("col_span", 1))),
             title=str(data.get("title", "")),
             display=DisplayConfig.from_dict(data.get("display")),
             curve_visibility={
@@ -187,6 +193,8 @@ class CustomPlotConfig:
     plot_mode: str = "manual"
     row: int = 0
     col: int = 0
+    row_span: int = 1
+    col_span: int = 1
     title: str = "未配置图窗"
     display: DisplayConfig = field(default_factory=DisplayConfig)
     horizontal_compare: HorizontalCompareConfig = field(default_factory=HorizontalCompareConfig)
@@ -203,6 +211,8 @@ class CustomPlotConfig:
             "plot_mode": self.plot_mode,
             "row": self.row,
             "col": self.col,
+            "row_span": self.row_span,
+            "col_span": self.col_span,
             "title": self.title,
             "display": self.display.to_dict(),
             "horizontal_compare": self.horizontal_compare.to_dict(),
@@ -225,6 +235,8 @@ class CustomPlotConfig:
             plot_id=str(data["plot_id"]),
             plot_type="custom",
             plot_mode=str(data.get("plot_mode", "manual")),
+            row_span=max(1, int(data.get("row_span", 1))),
+            col_span=max(1, int(data.get("col_span", 1))),
             row=int(data.get("row", 0)),
             col=int(data.get("col", 0)),
             title=str(data.get("title", "未配置图窗")),

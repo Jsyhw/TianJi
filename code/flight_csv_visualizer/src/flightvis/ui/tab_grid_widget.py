@@ -31,6 +31,10 @@ class TabGridWidget(QScrollArea):
             if widget:
                 widget.deleteLater()
         self.cells = []
+        for row in range(self.tab_config.rows):
+            self.grid.setRowStretch(row, 1)
+        for col in range(self.tab_config.cols):
+            self.grid.setColumnStretch(col, 1)
         for plot in self.tab_config.plots:
             if plot.plot_type == "preset":
                 cell = PresetPlotCell(plot, self.data_manager, self.project_manager)
@@ -38,7 +42,7 @@ class TabGridWidget(QScrollArea):
                 cell = CustomPlotCell(plot, self.data_manager, self.project_manager)
             cell.changed.connect(self.changed.emit)
             cell.selected.connect(self.plot_selected.emit)
-            self.grid.addWidget(cell, plot.row, plot.col)
+            self.grid.addWidget(cell, plot.row, plot.col, getattr(plot, "row_span", 1), getattr(plot, "col_span", 1))
             self.cells.append(cell)
 
     def refresh(self) -> None:

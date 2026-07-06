@@ -10,6 +10,8 @@ from flightvis.models.plot_config import (
     plot_from_dict,
 )
 
+GridRegion = tuple[int, int, int, int]
+
 
 @dataclass
 class TabConfig:
@@ -60,9 +62,17 @@ def create_default_tab() -> TabConfig:
     return TabConfig(tab_id="default", name="基本状态量", tab_type="default", rows=3, cols=3, plots=plots)
 
 
-def create_custom_tab(tab_id: str, name: str, rows: int, cols: int) -> TabConfig:
+def create_custom_tab(tab_id: str, name: str, rows: int, cols: int, layout: list[GridRegion] | None = None) -> TabConfig:
     plots: list[CustomPlotConfig] = []
-    for row in range(rows):
-        for col in range(cols):
-            plots.append(CustomPlotConfig(plot_id=f"{tab_id}_plot_{row}_{col}", row=row, col=col))
+    regions = layout or [(row, col, 1, 1) for row in range(rows) for col in range(cols)]
+    for index, (row, col, row_span, col_span) in enumerate(regions):
+        plots.append(
+            CustomPlotConfig(
+                plot_id=f"{tab_id}_plot_{index}_{row}_{col}",
+                row=row,
+                col=col,
+                row_span=max(1, row_span),
+                col_span=max(1, col_span),
+            )
+        )
     return TabConfig(tab_id=tab_id, name=name, tab_type="custom", rows=rows, cols=cols, plots=plots)

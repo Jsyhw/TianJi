@@ -27,11 +27,13 @@ from flightvis.plotting.trajectory_renderer import (
 )
 from flightvis.plotting.style import configure_matplotlib_fonts
 from flightvis.resources import app_icon_path
+from flightvis.ui.advanced_grid_layout_dialog import AdvancedGridLayoutDialog
 from flightvis.ui.compare_mode_widget import HorizontalCompareSettingsWidget
 from flightvis.ui.curve_manager_dialog import CustomCurveManagerDialog, PresetCurveManagerDialog
 from flightvis.ui.custom_plot_settings_dialog import CustomPlotSettingsDialog
 from flightvis.ui.legend_bar import LegendItemWidget
 from flightvis.ui.main_window import MainWindow
+from flightvis.ui.new_tab_dialog import NewTabDialog
 from flightvis.ui.trajectory_curve_manager_dialog import TrajectoryCurveManagerDialog
 
 
@@ -95,6 +97,100 @@ def test_tab_add_button_and_custom_tab_close(qapp):
     window.remove_tab_at(1)
     assert window.tabs.count() == 1
     assert window.project.tabs[0].name == "基本状态量"
+    window.project_manager.dirty = False
+    window.close()
+
+
+def test_new_tab_dialog_exposes_advanced_layout(qapp):
+    dialog = NewTabDialog(set())
+    assert dialog.rows.maximum() == 6
+    assert dialog.cols.maximum() == 6
+    assert dialog.advanced_button.text() == "高级"
+    assert dialog.values()[3] is None
+    dialog.close()
+
+
+def test_advanced_grid_layout_merges_and_unmerges(qapp):
+    dialog = AdvancedGridLayoutDialog(3, 3)
+    for cell in [(0, 0), (0, 1), (1, 0), (1, 1)]:
+        dialog.select_cell(*cell)
+    assert dialog.can_merge_selection() is True
+    dialog.merge_selection()
+    assert dialog.regions == [(0, 0, 2, 2)]
+    assert len(dialog.layout_regions()) == 6
+
+    dialog.handle_cell_click(0, 0, Qt.MouseButton.LeftButton)
+    assert dialog.selected_region_index == 0
+    dialog.unmerge_selected()
+    assert dialog.regions == []
+    assert len(dialog.layout_regions()) == 9
+    dialog.close()
+
+
+def test_advanced_grid_layout_uses_square_gapless_grid(qapp):
+    dialog = AdvancedGridLayoutDialog(3, 6)
+    margins = dialog.grid.contentsMargins()
+    assert dialog.grid.spacing() == 0
+    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (0, 0, 0, 0)
+    assert dialog.grid_host.width() == dialog.grid_host.height()
+    cell_width, cell_height = dialog.cell_size()
+    assert {button.width() for button in dialog.cells.values()} == {cell_width}
+    assert {button.height() for button in dialog.cells.values()} == {cell_height}
+    assert cell_width * dialog.cols == dialog.grid_host.width()
+    assert cell_height * dialog.rows == dialog.grid_host.height()
+    assert cell_width != cell_height
+
+    dialog.rows_spin.setValue(6)
+    dialog.cols_spin.setValue(6)
+    cell_width, cell_height = dialog.cell_size()
+    assert dialog.grid_host.width() == dialog.grid_host.height()
+    assert {button.width() for button in dialog.cells.values()} == {cell_width}
+    assert {button.height() for button in dialog.cells.values()} == {cell_height}
+    assert cell_width == cell_height
+    assert cell_width < 100
+    dialog.close()
+
+
+def test_advanced_grid_layout_assigns_unique_region_colors(qapp):
+    dialog = AdvancedGridLayoutDialog(3, 3)
+    for cell in [(0, 0), (0, 1)]:
+        dialog.select_cell(*cell)
+    dialog.merge_selection()
+    for cell in [(1, 0), (1, 1)]:
+        dialog.select_cell(*cell)
+    dialog.merge_selection()
+
+    assert len(dialog.region_colors) == 2
+    assert dialog.region_colors[0] != dialog.region_colors[1]
+    assert dialog.region_colors[0] in dialog.cells[(0, 0)].styleSheet()
+    assert dialog.region_colors[1] in dialog.cells[(1, 0)].styleSheet()
+    assert "#f7f7f7" in dialog.cells[(2, 2)].styleSheet()
+
+    dialog.handle_cell_click(0, 0, Qt.MouseButton.LeftButton)
+    assert dialog.region_colors[0] not in dialog.cells[(0, 0)].styleSheet()
+    assert dialog.selected_region_color(dialog.region_colors[0]) in dialog.cells[(0, 0)].styleSheet()
+    dialog.close()
+
+
+def test_advanced_grid_layout_rejects_non_rectangular_selection(qapp):
+    dialog = AdvancedGridLayoutDialog(3, 3)
+    dialog.select_cell(0, 0)
+    dialog.select_cell(1, 1)
+    assert dialog.can_merge_selection() is False
+    dialog.close()
+
+
+def test_tab_grid_widget_applies_plot_spans(qapp):
+    window = MainWindow()
+    tab_id = window.project.allocate_tab_id()
+    window.project.tabs.append(create_custom_tab(tab_id, "高级布局", 3, 3, [(0, 0, 2, 2), (0, 2, 1, 1)]))
+    window.refresh_all_views(preferred_tab_id=tab_id)
+
+    grid_widget = window.tab_widgets[1]
+    assert len(grid_widget.cells) == 2
+    index = grid_widget.grid.indexOf(grid_widget.cells[0])
+    row, col, row_span, col_span = grid_widget.grid.getItemPosition(index)
+    assert (row, col, row_span, col_span) == (0, 0, 2, 2)
     window.project_manager.dirty = False
     window.close()
 
